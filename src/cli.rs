@@ -1,5 +1,4 @@
 use clap::{App, Arg};
-use pnet::packet::arp::{ArpOperation, ArpOperations};
 use pnet::util::{MacAddr, ParseMacAddrErr};
 use std::net::{AddrParseError, Ipv4Addr};
 

