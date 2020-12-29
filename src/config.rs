@@ -7,7 +7,9 @@ pub struct Params {
     pub target_ip: Ipv4Addr,
 
     pub gateway_ip: Ipv4Addr,
+    pub gateway_mac: MacAddr,
 
     pub host_mac: MacAddr,
     pub target_mac: MacAddr,
+    pub recover: bool,
 }

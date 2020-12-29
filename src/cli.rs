@@ -22,12 +22,26 @@ pub fn command_line_start() -> config::Params {
                 .help("Provide the interface to be used to send packets"),
         )
         .arg(
-            Arg::with_name("gateway")
+            Arg::with_name("gateway-ip")
                 .short("g")
                 .long("gateway-ip")
                 .required(true)
                 .takes_value(true)
                 .help("Set the gateway ip"),
+        )
+        .arg(
+            Arg::with_name("gateway-mac")
+                .short("G")
+                .long("gateway-mac")
+                .required(true)
+                .takes_value(true)
+                .help("Set the gateway mac address"),
+        )
+        .arg(
+            Arg::with_name("recover")
+                .short("r")
+                .long("recover")
+                .help("Recover ARP table"),
         )
         .arg(
             Arg::with_name("source_ip")
@@ -66,7 +80,9 @@ pub fn command_line_start() -> config::Params {
     let interface: String = matches.value_of("interface").unwrap().trim().to_string();
 
     let gateway: Result<Ipv4Addr, AddrParseError> =
-        matches.value_of("gateway").unwrap().trim().parse();
+        matches.value_of("gateway-ip").unwrap().trim().parse();
+    let gateway_mac: Result<MacAddr, ParseMacAddrErr> =
+        matches.value_of("gateway-mac").unwrap().trim().parse();
     let host_ip: Result<Ipv4Addr, AddrParseError> =
         matches.value_of("source_ip").unwrap().trim().parse();
     let host_mac: Result<MacAddr, ParseMacAddrErr> =
@@ -76,13 +92,19 @@ pub fn command_line_start() -> config::Params {
     let target_mac: Result<MacAddr, ParseMacAddrErr> =
         matches.value_of("target_mac").unwrap().trim().parse();
 
+    let mut recover = false;
+    if matches.is_present("recover") {
+        recover = true;
+    }
     let params: config::Params = config::Params {
         interface: interface,
         gateway_ip: gateway.unwrap(),
+        gateway_mac: gateway_mac.unwrap(),
         host_ip: host_ip.unwrap(),
         host_mac: host_mac.unwrap(),
         target_ip: target_ip.unwrap(),
         target_mac: target_mac.unwrap(),
+        recover: recover,
     };
 
     params

