@@ -1,5 +1,5 @@
 [package]
-name = "Init"
+name = "arp_spoof"
 version = "0.1.0"
 authors = ["Felipe Brasileiro"]
 edition = "2018"
@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 pnet = "*"
 pnet_datalink = "*"
+clap = "*"
